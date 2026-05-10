@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FlowDroid Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #f0f0f0; padding: 32px; color: #222; }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 0.85rem; margin-bottom: 32px; }
+    .upload-box { background: white; border: 2px dashed #ccc; border-radius: 8px; padding: 32px; text-align: center; margin-bottom: 32px; }
+    .upload-box h2 { font-size: 1rem; margin-bottom: 8px; }
+    .upload-box p { color: #666; font-size: 0.85rem; margin-bottom: 16px; }
+    .upload-box input { margin-bottom: 12px; }
+    .upload-box button { padding: 8px 20px; background: #333; color: white; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; }
+    #spinner { display: none; margin-top: 12px; color: #666; font-size: 0.85rem; }
+    #uploadError { display: none; margin-top: 12px; color: red; font-size: 0.85rem; }
+    .app-card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .app-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .app-name { font-size: 1rem; font-weight: bold; }
+    .risk-badge { font-size: 0.75rem; padding: 3px 10px; border-radius: 20px; font-weight: bold; }
+    .r1, .r2 { background: #e0ffe0; color: #060; }
+    .r3 { background: #fff8e0; color: #a06000; }
+    .r4 { background: #ffe8cc; color: #c04000; }
+    .r5, .r6 { background: #ffe0e0; color: #c00; }
+    .summary { font-size: 0.85rem; color: #444; line-height: 1.6; background: #fff8e1; border-left: 4px solid #f0a500; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 4px 4px 0; }
+    .leak-card { border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 12px; background: #fafafa; }
+    .leak-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .leak-type { font-size: 0.78rem; color: #666; }
+    .graph { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .node { border-radius: 6px; padding: 10px 14px; min-width: 120px; max-width: 180px; }
+    .node-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; opacity: 0.7; }
+    .node-category { font-size: 11px; font-weight: bold; margin-bottom: 3px; }
+    .node-sig { font-size: 10px; opacity: 0.7; word-break: break-all; }
+    .node-source { border: 1px solid #90caf9; background: #e3f2fd; color: #0d47a1; }
+    .node-intermediate { border: 1px solid #ccc; background: #f5f5f5; color: #444; }
+    .node-sink { border: 1px solid #ef9a9a; background: #ffebee; color: #b71c1c; }
+    .node-risk-r1, .node-risk-r2 { border: 1px solid #a5d6a7; background: #e8f5e9; color: #1b5e20; }
+    .node-risk-r3 { border: 1px solid #ffe082; background: #fffde7; color: #f57f17; }
+    .node-risk-r4 { border: 1px solid #ffcc80; background: #fff3e0; color: #e65100; }
+    .node-risk-r5, .node-risk-r6 { border: 1px solid #ef9a9a; background: #ffebee; color: #b71c1c; }
+    .arrow { color: #999; font-size: 1.2rem; }
+    .divider { border: none; border-top: 1px solid #eee; margin: 12px 0; }
+    .scores { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.78rem; }
+    .score-row { display: flex; justify-content: space-between; color: #666; }
+    .score-row span:last-child { font-weight: bold; color: #333; }
+    .no-leaks { color: #060; font-size: 0.85rem; background: #e0ffe0; padding: 12px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>FlowDroid Dashboard</h1>
+<p class="subtitle">Static taint analysis reports</p>
+
+<div class="upload-box">
+  <h2>Analyze an APK</h2>
+  <p>Upload an Android APK file to scan for privacy leaks</p>
+  <input type="file" id="apkFile" accept=".apk"><br>
+  <button onclick="uploadAPK()">Run Analysis</button>
+  <div id="spinner">Analyzing... this takes about 30 seconds ⏳</div>
+  <div id="uploadError"></div>
+</div>
+
+{% for report in reports %}
+<div class="app-card">
+
+  <div class="app-header">
+    <span class="app-name">{{ report.app }}</span>
+    {% if report.leak_count > 0 %}
+      {% set max_level = namespace(val='R1') %}
+      {% for leak in report.leaks %}
+        {% if leak.risk_node.level > max_level.val %}
+          {% set max_level.val = leak.risk_node.level %}
+        {% endif %}
+      {% endfor %}
+      <span class="risk-badge {{ max_level.val | lower }}">highest risk: {{ max_level.val }}</span>
+    {% else %}
+      <span class="risk-badge r1">clean</span>
+    {% endif %}
+  </div>
+
+  {% if report.summary %}
+  <div class="summary">{{ report.summary }}</div>
+  {% endif %}
+
+  {% if report.leaks %}
+    {% for leak in report.leaks %}
+    <div class="leak-card">
+
+      <div class="leak-header">
+        <span class="risk-badge {{ leak.risk_node.level | lower }}">{{ leak.risk_node.level }} {{ leak.risk_node.label }}</span>
+        <span class="leak-type">{{ leak.source_node.data_category }} → {{ leak.sink_node.sink_category }}</span>
+      </div>
+
+      <div class="graph">
+        <div class="node node-source">
+          <div class="node-label">source</div>
+          <div class="node-category">{{ leak.source_node.data_category }}</div>
+          <div class="node-sig">{{ leak.source_node.signature.split(':')[-1].strip() }}</div>
+        </div>
+        <span class="arrow">→</span>
+        <div class="node node-intermediate">
+          <div class="node-label">via</div>
+          <div class="node-category">{{ leak.intermediate_node.method.split(':')[-1].strip()[:30] }}</div>
+          <div class="node-sig">{{ leak.intermediate_node.method.split(':')[0].split('.')[-1] }}</div>
+        </div>
+        <span class="arrow">→</span>
+        <div class="node node-sink">
+          <div class="node-label">sink</div>
+          <div class="node-category">{{ leak.sink_node.sink_category }}</div>
+          <div class="node-sig">{{ leak.sink_node.signature.split(':')[-1].strip()[:30] }}</div>
+        </div>
+        <span class="arrow">→</span>
+        <div class="node node-risk-{{ leak.risk_node.level | lower }}">
+          <div class="node-label">risk</div>
+          <div class="node-category">{{ leak.risk_node.level }} {{ leak.risk_node.label }}</div>
+          <div class="node-sig">score: {{ leak.risk_node.total }}</div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="scores">
+        {% if leak.risk_node.scores.sensitive_source > 0 %}
+        <div class="score-row"><span>Sensitive source</span><span>+{{ leak.risk_node.scores.sensitive_source }}</span></div>
+        {% endif %}
+        {% if leak.risk_node.scores.local_storage > 0 %}
+        <div class="score-row"><span>Local storage</span><span>+{{ leak.risk_node.scores.local_storage }}</span></div>
+        {% endif %}
+        {% if leak.risk_node.scores.network > 0 %}
+        <div class="score-row"><span>Network/IPC</span><span>+{{ leak.risk_node.scores.network }}</span></div>
+        {% endif %}
+        {% if leak.risk_node.scores.multiple_sinks > 0 %}
+        <div class="score-row"><span>Multiple sinks</span><span>+{{ leak.risk_node.scores.multiple_sinks }}</span></div>
+        {% endif %}
+        <div class="score-row"><span>Total</span><span>{{ leak.risk_node.total }}</span></div>
+      </div>
+
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="no-leaks">No leaks detected</div>
+  {% endif %}
+
+</div>
+{% endfor %}
+
+<script>
+function uploadAPK() {
+  const file = document.getElementById('apkFile').files[0];
+  if (!file) { alert('Please select an APK file first'); return; }
+  const formData = new FormData();
+  formData.append('apk', file);
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('uploadError').style.display = 'none';
+  fetch('/upload', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById('uploadError').innerText = data.error;
+        document.getElementById('uploadError').style.display = 'block';
+        document.getElementById('spinner').style.display = 'none';
+        return;
+      }
+      pollStatus(data.filename);
+    });
+}
+
+function pollStatus(filename) {
+  fetch('/status/' + filename)
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'done') {
+        location.reload();
+      } else if (data.status === 'error') {
+        document.getElementById('spinner').innerText = 'Analysis failed. Check server logs.';
+      } else {
+        setTimeout(() => pollStatus(filename), 2000);
+      }
+    });
+}
+</script>
+</body>
+</html>
